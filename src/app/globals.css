@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-bg-base: #0a0a0f;
+  --color-bg-raised: #111118;
+  --color-bg-card: rgba(255, 255, 255, 0.03);
+  --color-bg-card-hover: rgba(255, 255, 255, 0.06);
+  --color-bg-overlay: rgba(10, 10, 15, 0.8);
+
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-medium: rgba(255, 255, 255, 0.1);
+  --color-border-accent: rgba(139, 92, 246, 0.4);
+
+  --color-text-primary: #ededf0;
+  --color-text-secondary: #8b8b9e;
+  --color-text-tertiary: #56566a;
+  --color-text-inverse: #0a0a0f;
+
+  --color-accent: #8b5cf6;
+  --color-accent-soft: rgba(139, 92, 246, 0.15);
+  --color-accent-glow: rgba(139, 92, 246, 0.25);
+
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.08);
+  --color-danger-border: rgba(248, 113, 113, 0.2);
+  
+  --color-safe: #4ade80;
+  --color-safe-bg: rgba(74, 222, 128, 0.08);
+  --color-safe-border: rgba(74, 222, 128, 0.2);
+  
+  --color-warn: #fbbf24;
+  --color-warn-bg: rgba(251, 191, 36, 0.06);
+  --color-warn-border: rgba(251, 191, 36, 0.15);
+
+  --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-instrument: 'Instrument Serif', Georgia, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    background-color: var(--color-bg-base);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    font-family: var(--font-inter);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .loader__ring {
+      width: 64px;
+      height: 64px;
+  }
+
+  .loader__ring svg {
+      width: 100%;
+      height: 100%;
+  }
+  
+  .scan-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      background: rgba(139, 92, 246, 0.1);
+      pointer-events: none;
+      overflow: hidden;
+  }
+
+  .scan-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: var(--color-accent);
+      box-shadow: 0 0 20px 4px var(--color-accent-glow);
+      animation: scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes scan {
+      0% { transform: translateY(-100%); }
+      50% { transform: translateY(1000%); }
+      100% { transform: translateY(-100%); }
+  }
+
+  @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fadeUp {
+      animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
 }
