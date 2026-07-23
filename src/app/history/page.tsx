@@ -3,8 +3,13 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { collection, query, orderBy, deleteDoc, doc, limit, onSnapshot } from "firebase/firestore";
-import { Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Target, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import LensFrame from "@/components/LensFrame";
+import ConfidenceRing from "@/components/ConfidenceRing";
+import AdvisoryBand from "@/components/AdvisoryBand";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface AnalysisRecord {
   id: string;
@@ -19,124 +24,246 @@ export default function HistoryPage() {
   const { user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'All' | 'Flagged' | 'Benign-leaning'>('All');
+  
+  const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
   const router = useRouter();
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
-      router.push("/");
-      return;
-    }
+    if (!user) { router.push("/"); return; }
 
-    const q = query(
-      collection(db, "users", user.uid, "analyses"),
-      orderBy("timestamp", "desc"),
-      limit(20)
+    const q = query(collection(db, "users", user.uid, "analyses"), orderBy("timestamp", "desc"), limit(50));
+    const unsub = onSnapshot(q,
+      snap => { setRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })) as AnalysisRecord[]); setLoading(false); },
+      () => setLoading(false),
     );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as AnalysisRecord[];
-        setRecords(data);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Error fetching history", err);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+    return () => unsub();
   }, [user, authLoading, router]);
 
-  const handleDelete = async (id: string) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, "users", user.uid, "analyses", id));
-      setRecords(records.filter(r => r.id !== id));
-    } catch (err) {
-      console.error("Error deleting record", err);
-    }
+  const handleDelete = async () => {
+    if (!user || !selectedRecord) return;
+    setIsConfirmOpen(false);
+    setSelectedRecord(null);
+    await deleteDoc(doc(db, "users", user.uid, "analyses", selectedRecord.id));
+    setRecords(r => r.filter(x => x.id !== selectedRecord.id));
   };
+
+  const getRelativeTime = (ts: AnalysisRecord["timestamp"]) => {
+    let date: Date;
+    if (typeof ts === "object" && ts && "toDate" in ts && typeof ts.toDate === "function") {
+      date = ts.toDate();
+    } else if (ts) {
+      date = new Date(ts as string | number);
+    } else {
+      return "Just now";
+    }
+
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    const diff = date.getTime() - new Date().getTime();
+    const days = Math.round(diff / (1000 * 60 * 60 * 24));
+    
+    if (days === 0) return "Today";
+    if (days === -1) return "Yesterday";
+    if (days > -30) return rtf.format(days, 'day');
+    return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  };
+  
+  const getFullDate = (ts: AnalysisRecord["timestamp"]) => {
+    let date: Date;
+    if (typeof ts === "object" && ts && "toDate" in ts && typeof ts.toDate === "function") {
+      date = ts.toDate();
+    } else if (ts) {
+      date = new Date(ts as string | number);
+    } else {
+      return "";
+    }
+    return new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeStyle: 'short' }).format(date);
+  }
+
+  const filteredRecords = records.filter(r => {
+    if (filter === 'Flagged') return r.isHighRisk;
+    if (filter === 'Benign-leaning') return !r.isHighRisk;
+    return true;
+  });
 
   if (authLoading || loading) {
     return (
-      <div className="animate-fadeUp">
-        <h1 className="font-instrument text-4xl mb-8">Analysis History</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="bg-bg-card border border-border-subtle rounded-2xl overflow-hidden animate-pulse">
-              <div className="aspect-video bg-bg-raised"></div>
-              <div className="p-5">
-                <div className="flex justify-between items-start mb-4">
-                  <div className="w-1/2">
-                    <div className="h-3 bg-border-subtle rounded-full w-24 mb-3"></div>
-                    <div className="h-8 bg-border-subtle rounded-full w-20"></div>
-                  </div>
-                  <div className="w-10 h-10 bg-border-subtle rounded-lg"></div>
-                </div>
-                <div className="w-full bg-border-subtle h-1.5 rounded-full"></div>
-              </div>
-            </div>
-          ))}
+      <div className="animate-fadeUp max-w-[720px] mx-auto">
+        <div className="mb-8">
+          <h1 className="text-[32px] font-semibold mb-2">History</h1>
+          <div className="h-[36px] w-[240px] bg-paper rounded-md animate-pulse"></div>
         </div>
       </div>
     );
   }
 
+  // --- DETAIL VIEW ---
+  if (selectedRecord) {
+    const isHigh = selectedRecord.isHighRisk;
+    const pct = selectedRecord.probability * 100;
+    const predictionClass = isHigh ? 'flagged' : 'benign-leaning';
+
+    return (
+      <div className="max-w-[960px] mx-auto animate-fadeUp">
+        <button 
+          onClick={() => setSelectedRecord(null)}
+          className="flex items-center gap-1 text-body-sm font-medium text-ink-muted hover:text-ink focus-ring mb-8 px-2 py-1 -ml-2 rounded-md"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back to list
+        </button>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
+          <div className="flex justify-center md:justify-end">
+            <LensFrame src={selectedRecord.imageDataUrl} size={320} />
+          </div>
+          
+          <div className="flex flex-col items-center md:items-start w-full max-w-[440px]">
+            <span className="text-body-sm text-ink-muted mb-4 font-mono font-medium tracking-wide">
+              {getFullDate(selectedRecord.timestamp)}
+            </span>
+
+            <div className="mb-6">
+              <span className={`
+                inline-flex items-center justify-center px-4 py-1.5 rounded-sm text-sm font-semibold uppercase tracking-wide
+                ${isHigh ? 'bg-brick/10 text-brick' : 'bg-moss/10 text-moss'}
+              `}>
+                {isHigh ? 'Flagged' : 'Lower Concern'}
+              </span>
+            </div>
+
+            <div className="mb-8">
+              <ConfidenceRing 
+                state="settled" 
+                value={pct} 
+                size="lg" 
+                predictionClass={predictionClass} 
+              />
+            </div>
+
+            <div className="w-full mb-6">
+              <AdvisoryBand isFlagged={isHigh} />
+            </div>
+
+            <button
+              onClick={() => setIsConfirmOpen(true)}
+              className="text-body-sm font-medium text-ink-muted hover:text-brick focus-ring px-4 py-2 mt-4 rounded-md transition-colors"
+            >
+              Delete this scan
+            </button>
+          </div>
+        </div>
+
+        <ConfirmDialog 
+          isOpen={isConfirmOpen}
+          title="Delete this scan?"
+          message="This can't be undone."
+          confirmLabel="Delete"
+          onCancel={() => setIsConfirmOpen(false)}
+          onConfirm={handleDelete}
+        />
+      </div>
+    );
+  }
+
+  // --- LIST VIEW ---
   return (
-    <div className="animate-fadeUp">
-      <h1 className="font-instrument text-4xl mb-8">Analysis History</h1>
-      
+    <div className="animate-fadeUp max-w-[720px] mx-auto">
+      <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="mb-2">History</h1>
+        </div>
+        
+        {/* Lightweight filter (segmented control) */}
+        {records.length > 0 && (
+          <div className="inline-flex bg-paper border border-hairline rounded-md p-1">
+            {(['All', 'Flagged', 'Benign-leaning'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`
+                  px-4 py-1.5 text-sm font-medium rounded-sm focus-ring transition-colors
+                  ${filter === f 
+                    ? 'bg-surface shadow-card text-ink' 
+                    : 'text-ink-muted hover:text-ink'}
+                `}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {records.length === 0 ? (
-        <div className="text-text-secondary bg-bg-card border border-border-subtle p-8 rounded-2xl text-center">
-          No analyses saved yet. Upload an image on the main page to see it here!
+        <div className="flex flex-col items-center justify-center py-20 text-center bg-surface border border-hairline rounded-md">
+          <Target className="w-12 h-12 text-ink-muted mb-4 opacity-50 stroke-[1.5]" aria-hidden="true" />
+          <p className="text-body font-semibold text-ink mb-2">No scans yet</p>
+          <p className="text-body-sm text-ink-muted mb-6">Complete your first check to see it here.</p>
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center h-10 px-6 rounded-md bg-teal text-surface font-semibold text-sm hover:bg-teal-dark transition-colors focus-ring"
+          >
+            Check a Spot
+          </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {records.map((record) => (
-            <div key={record.id} className="bg-bg-card border border-border-subtle rounded-2xl overflow-hidden group">
-              <div className="aspect-video relative overflow-hidden bg-bg-raised">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={record.imageDataUrl} alt="Analysis thumbnail" className="w-full h-full object-cover" />
-                <button 
-                  onClick={() => handleDelete(record.id)}
-                  className="absolute top-2 right-2 p-2 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger"
-                  title="Delete record"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="p-5">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <div className="text-xs text-text-tertiary mb-1">
-                      {typeof record.timestamp === 'object' && record.timestamp && 'toDate' in record.timestamp && typeof record.timestamp.toDate === 'function' ? record.timestamp.toDate().toLocaleDateString() : (record.timestamp ? new Date(record.timestamp as string | number).toLocaleDateString() : 'Just now')}
-                    </div>
-                    <div className={`text-2xl font-instrument ${record.isHighRisk ? 'text-danger' : 'text-safe'}`}>
-                      {(record.probability * 100).toFixed(1)}%
+        <div className="flex flex-col gap-3">
+          {filteredRecords.length === 0 && (
+            <p className="text-center text-body-sm text-ink-muted py-10">
+              No scans found matching this filter.
+            </p>
+          )}
+          
+          {filteredRecords.map(rec => {
+            const isHigh = rec.isHighRisk;
+            const pct = (rec.probability * 100).toFixed(1);
+            
+            return (
+              <button
+                key={rec.id}
+                onClick={() => setSelectedRecord(rec)}
+                className="group flex items-center justify-between p-4 bg-surface border border-hairline rounded-md hover:border-teal/50 hover:shadow-card transition-all text-left focus-ring"
+              >
+                <div className="flex items-center gap-4">
+                  {/* Lens Thumbnail */}
+                  <div className="relative">
+                    <LensFrame src={rec.imageDataUrl} size={48} />
+                    {/* Small ring overlay on thumbnail per spec */}
+                    <div className="absolute -bottom-1 -right-1 bg-surface rounded-full p-0.5">
+                      <ConfidenceRing 
+                        value={rec.probability * 100} 
+                        size="sm" 
+                        state="settled"
+                        predictionClass={isHigh ? 'flagged' : 'benign-leaning'}
+                      />
                     </div>
                   </div>
-                  <div className={`p-2 rounded-lg ${record.isHighRisk ? 'bg-danger-bg text-danger' : 'bg-safe-bg text-safe'}`}>
-                    {record.isHighRisk ? <AlertTriangle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+
+                  <div className="flex flex-col justify-center">
+                    <span className={`text-[11px] font-semibold uppercase tracking-wide ${isHigh ? 'text-brick' : 'text-moss'}`}>
+                      {isHigh ? 'Flagged' : 'Lower Concern'}
+                    </span>
+                    <span className="text-data text-ink mt-0.5">
+                      {pct}%
+                    </span>
                   </div>
                 </div>
-                <div className="w-full bg-border-subtle h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full rounded-full" 
-                    style={{ 
-                      width: `${(record.probability * 100).toFixed(1)}%`,
-                      background: record.isHighRisk ? 'linear-gradient(90deg, #fbbf24 0%, #f87171 100%)' : 'linear-gradient(90deg, #4ade80 0%, #22d3ee 100%)'
-                    }}
-                  ></div>
+
+                <div className="text-right">
+                  <span 
+                    className="text-body-sm text-ink-muted" 
+                    title={getFullDate(rec.timestamp)}
+                  >
+                    {getRelativeTime(rec.timestamp)}
+                  </span>
                 </div>
-              </div>
-            </div>
-          ))}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

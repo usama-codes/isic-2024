@@ -1,32 +1,67 @@
 "use client";
-import React from "react";
-import { MapPin } from "lucide-react";
+import React, { useState } from "react";
+import { MapPin, Stethoscope } from "lucide-react";
 
 export default function DoctorsPage() {
+  const [hasSearched, setHasSearched] = useState(false);
+  
+  const handleUseLocation = () => {
+    setHasSearched(true);
+  };
+
   return (
-    <div className="animate-fadeUp max-w-5xl mx-auto h-[80vh] flex flex-col">
-      <div className="flex items-center justify-between mb-8 shrink-0">
-        <div>
-          <h1 className="font-instrument text-4xl mb-2">Find a Dermatologist</h1>
-          <p className="text-text-secondary">Search for specialists near your location</p>
-        </div>
-        <div className="p-3 bg-accent/10 text-accent rounded-xl">
-          <MapPin className="w-6 h-6" />
-        </div>
+    <div className="animate-fadeUp max-w-[960px] mx-auto pb-20">
+      
+      {/* Header */}
+      <div className="mb-10">
+        <h1 className="mb-4">Find Care</h1>
+        <p className="text-body text-ink-muted">
+          Find board-certified dermatologists in your area.
+        </p>
       </div>
 
-      <div className="flex-1 bg-bg-raised border border-border-subtle rounded-3xl overflow-hidden relative shadow-[0_8px_40px_rgba(0,0,0,0.2)]">
-        <iframe 
-          width="100%" 
-          height="100%" 
-          style={{ border: 0 }} 
-          loading="lazy" 
-          allowFullScreen 
-          referrerPolicy="no-referrer-when-downgrade" 
-          src="https://maps.google.com/maps?q=dermatologists+near+me&output=embed"
-          className="absolute inset-0"
-        ></iframe>
+      {/* Action Area */}
+      <div className="mb-8">
+        <button 
+          type="button"
+          onClick={handleUseLocation}
+          className="flex items-center justify-center gap-2 h-[52px] px-8 rounded-md bg-teal text-surface font-semibold focus-ring hover:bg-teal-dark transition-colors cursor-pointer w-full sm:w-auto"
+        >
+          <MapPin className="w-5 h-5" />
+          Use My Location
+        </button>
+        
+        <p className="text-[13px] text-ink-muted mt-3">
+          These listings are informational and not a referral or endorsement.
+        </p>
       </div>
+
+      {/* Results Area */}
+      {hasSearched ? (
+        <div className="w-full h-[600px] rounded-md overflow-hidden border border-hairline bg-surface animate-fadeUp">
+          <iframe
+            title="Dermatologists near me"
+            width="100%"
+            height="100%"
+            style={{ border: 0 }}
+            loading="lazy"
+            allowFullScreen
+            referrerPolicy="no-referrer-when-downgrade"
+            src={`https://maps.google.com/maps?q=${encodeURIComponent("dermatologists near me")}&z=12&output=embed`}
+            className="w-full h-full"
+          />
+        </div>
+      ) : (
+        /* Initial Empty State */
+        <div className="bg-surface border border-hairline p-10 rounded-md text-center">
+          <Stethoscope className="w-10 h-10 text-ink-muted mx-auto mb-4 stroke-[1.5]" />
+          <h2 className="text-body font-semibold text-ink mb-2">Ready to find a specialist?</h2>
+          <p className="text-body-sm text-ink-muted max-w-md mx-auto">
+            Click "Use My Location" above to see dermatologists near you.
+          </p>
+        </div>
+      )}
+      
     </div>
   );
 }

@@ -1,290 +1,293 @@
 "use client";
 import React, { useRef, useState, useEffect } from "react";
-import { UploadCloud, CheckCircle2, AlertTriangle, RefreshCw, Download } from "lucide-react";
 import { useModel } from "@/hooks/useModel";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useAnalysis } from "@/context/AnalysisContext";
 import Link from "next/link";
+import LensFrame from "@/components/LensFrame";
+import ConfidenceRing from "@/components/ConfidenceRing";
+import AdvisoryBand from "@/components/AdvisoryBand";
 
 export default function Home() {
   const { predict } = useModel();
   const { user } = useAuth();
   const { imageSrc, setImageSrc, result, setResult, resetAnalysis } = useAnalysis();
-  
+
   const [isDragging, setIsDragging] = useState(false);
   const [isPredicting, setIsPredicting] = useState(false);
-  
-  const [config, setConfig] = useState<{threshold: number, image_size: number} | null>(null);
+  const [error, setError] = useState<'file' | 'quality' | 'network' | null>(null);
+  const [config, setConfig] = useState<{ threshold: number; image_size: number } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    fetch('/configs/config_v1.json')
-      .then(res => res.json())
-      .then(data => setConfig(data))
-      .catch(err => console.error("Failed to load config", err));
+    fetch("/configs/config_v1.json").then(r => r.json()).then(setConfig).catch(console.error);
   }, []);
 
   const handleFile = (file: File) => {
+    setError(null);
     if (!file.type.startsWith("image/")) {
-      alert("Please upload an image file (JPG, PNG, or WEBP).");
+      setError('file');
+      return;
+    }
+    // simple size check for 'quality' error 
+    if (file.size < 1024 * 10) { // 10kb too small
+      setError('quality');
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        setImageSrc(e.target.result as string);
-        setResult(null);
-      }
+    reader.onload = e => { 
+      if (e.target?.result) { 
+        setImageSrc(e.target.result as string); 
+        setResult(null); 
+      } 
     };
     reader.readAsDataURL(file);
   };
 
   const handlePredict = async () => {
     if (!imageRef.current || !config) return;
+    setError(null);
     setIsPredicting(true);
-    
-    // Simulate UI tick
+    // give UI time to update
     await new Promise(r => setTimeout(r, 100));
-    
-    const probability = await predict(imageRef.current);
-    setResult(probability);
-    setIsPredicting(false);
-
-    // Save to Firestore if user is logged in
-    if (user && probability !== null) {
-      try {
-        // Create a small thumbnail to save space
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const maxDim = 200;
-        const img = imageRef.current;
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        if (w > h) {
-          h = Math.round((h * maxDim) / w);
-          w = maxDim;
-        } else {
-          w = Math.round((w * maxDim) / h);
-          h = maxDim;
-        }
-        canvas.width = w;
-        canvas.height = h;
-        ctx?.drawImage(img, 0, 0, w, h);
-        const thumb = canvas.toDataURL('image/jpeg', 0.7);
-
-        await addDoc(collection(db, "users", user.uid, "analyses"), {
-          imageDataUrl: thumb,
-          probability: probability,
-          threshold: config.threshold,
-          isHighRisk: probability >= config.threshold,
-          modelVersion: "v1",
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Failed to save history", err);
+    try {
+      const prob = await predict(imageRef.current);
+      setResult(prob);
+      
+      if (user && prob !== null) {
+        try {
+          const c = document.createElement("canvas"); const ctx = c.getContext("2d");
+          const img = imageRef.current; let w = img.naturalWidth, h = img.naturalHeight;
+          const m = 200; if (w > h) { h = Math.round((h * m) / w); w = m; } else { w = Math.round((w * m) / h); h = m; }
+          c.width = w; c.height = h; ctx?.drawImage(img, 0, 0, w, h);
+          await addDoc(collection(db, "users", user.uid, "analyses"), {
+            imageDataUrl: c.toDataURL("image/jpeg", 0.7), probability: prob, threshold: config.threshold,
+            isHighRisk: prob >= config.threshold, modelVersion: "v1", timestamp: serverTimestamp(),
+          });
+        } catch (e) { console.error("Failed to save", e); }
       }
+    } catch (e) {
+      console.error(e);
+      setError('network');
+    } finally {
+      setIsPredicting(false);
     }
   };
 
-  const reset = () => {
-    resetAnalysis();
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  const reset = () => { 
+    resetAnalysis(); 
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = ""; 
   };
 
-  const handleDownload = () => {
-    if (!imageRef.current || result === null || !config) return;
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    canvas.width = 800;
-    canvas.height = 1000;
-    
-    // Background
-    ctx.fillStyle = '#0a0a0f';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Image
-    const imgHeight = 600;
-    ctx.drawImage(imageRef.current, 100, 100, 600, imgHeight);
-    
-    // Frame border
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(100, 100, 600, imgHeight);
-    
-    // Text
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillText('DermLens Analysis Report', 100, 70);
-    
-    ctx.font = '24px sans-serif';
-    const probPercent = (result * 100).toFixed(1) + '%';
-    ctx.fillText('Melanoma Probability: ' + probPercent, 100, 760);
-    
-    const isHigh = result >= config.threshold;
-    ctx.fillStyle = isHigh ? '#f87171' : '#4ade80';
-    ctx.fillText(isHigh ? '⚠ High-risk lesion detected' : '✓ Low-risk', 100, 810);
-    
-    ctx.fillStyle = '#8b8b9e';
-    ctx.font = '18px sans-serif';
-    ctx.fillText('This is not a medical diagnosis. Consult a dermatologist.', 100, 880);
-    ctx.fillText('Model: ISIC 2024 EfficientNet B0', 100, 910);
-    
-    const link = document.createElement('a');
-    link.download = 'DermLens_Report.png';
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-  };
+  const pct = result !== null ? (result * 100) : null;
+  const isHigh = result !== null && config !== null && result >= config.threshold;
+  
+  // For v1, we map high risk to flagged, low risk to benign-leaning. 
+  // We don't have a middle "uncertain" threshold defined in config yet.
+  const predictionClass = isHigh ? 'flagged' : 'benign-leaning';
 
   return (
-    <div className="animate-fadeUp">
-      {!imageSrc ? (
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-24 items-center min-h-[50vh]">
-          <div>
-            <p className="text-accent text-xs font-medium uppercase tracking-widest mb-4">AI-Powered Dermatology Research Tool</p>
-            <h1 className="font-instrument text-4xl md:text-5xl lg:text-6xl mb-6 leading-tight tracking-tight">
-              Analyse skin lesions with <em className="italic text-accent">precision</em>
-            </h1>
-            <p className="text-text-secondary text-lg mb-8 max-w-md leading-relaxed">
-              Upload a dermoscopic image and receive an instant probability estimate. Our model evaluates visual patterns associated with melanoma using deep learning.
-            </p>
-            
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-text-secondary bg-bg-card border border-border-subtle rounded-full">
-                EfficientNet B0
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-text-secondary bg-bg-card border border-border-subtle rounded-full">
-                ISIC 2024
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-text-secondary bg-bg-card border border-border-subtle rounded-full">
-                Real-time
-              </span>
-            </div>
-          </div>
+    <div className="w-full max-w-[960px] mx-auto">
+      <div className="mb-10 text-center lg:text-left">
+        <h1 className="mb-4">Check a spot</h1>
+        <p className="text-body text-ink-muted max-w-2xl mx-auto lg:mx-0">
+          Upload a clear photo for an instant, AI-powered screening.
+        </p>
+      </div>
 
-          <div className="flex justify-center">
-            <div 
-              className={`relative w-full max-w-md bg-bg-card border-2 border-dashed rounded-3xl p-1 transition-all duration-300 cursor-pointer group ${isDragging ? 'border-accent shadow-[0_0_0_2px_rgba(139,92,246,0.25),0_16px_60px_rgba(139,92,246,0.15)] -translate-y-1' : 'border-border-medium hover:border-border-accent hover:shadow-[0_0_0_1px_rgba(139,92,246,0.25),0_8px_40px_rgba(139,92,246,0.08)] hover:-translate-y-0.5'}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-              }}
-            >
-              <div className="flex flex-col items-center justify-center gap-4 py-16 px-8 rounded-[calc(1.5rem-2px)] border border-transparent group-hover:border-accent/30 transition-colors">
-                <div className="w-16 h-16 rounded-full bg-accent-soft text-accent flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                  <UploadCloud className="w-8 h-8" />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-start">
+        {/* Left Column: The Photo / Dropzone */}
+        <div className="flex flex-col items-center lg:items-start w-full">
+          {!imageSrc ? (
+            <div className="w-full max-w-[400px]">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label="Upload image. Click or drag and drop."
+                className={`
+                  w-full aspect-square rounded-md flex flex-col items-center justify-center
+                  cursor-pointer focus-ring transition-all duration-120 relative overflow-hidden group
+                  ${isDragging 
+                    ? 'border-2 border-teal bg-teal/5' 
+                    : 'border-2 border-dashed border-hairline bg-surface hover:bg-paper'}
+                `}
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click(); }}
+                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={e => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); }}
+              >
+                {/* Scale up lens frame on drag-over */}
+                <div className={`transition-transform duration-120 ${isDragging ? 'scale-105' : 'scale-100'}`}>
+                   <LensFrame size={200} />
                 </div>
-                <div className="text-center">
-                  <p className="text-lg font-semibold text-text-primary">Drop your image here</p>
-                  <p className="text-sm text-text-secondary mt-1">or <span className="text-accent underline underline-offset-4">browse files</span></p>
+                
+                <div className="mt-6 flex flex-col items-center text-center px-6">
+                  <span className="font-semibold text-ink text-body">Drag a photo here, or</span>
+                  <span className="mt-2 inline-flex items-center justify-center h-10 px-4 rounded-md bg-paper border border-hairline text-ink font-semibold text-sm hover:bg-hairline/50 transition-colors">
+                    Choose Photo
+                  </span>
                 </div>
-                <p className="text-xs text-text-tertiary">Supports JPG, PNG, WEBP</p>
               </div>
-              <input type="file" ref={fileInputRef} onChange={(e) => e.target.files && handleFile(e.target.files[0])} accept="image/*" hidden />
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-16 items-start">
-          <div className="flex flex-col gap-6">
-            <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-bg-raised aspect-square flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                ref={imageRef} 
-                src={imageSrc} 
-                alt="Uploaded lesion" 
-                className="w-full h-full object-cover" 
-                onLoad={() => {
-                  if (result === null && !isPredicting) handlePredict();
-                }}
-              />
-              {isPredicting && (
-                <div className="scan-overlay !flex">
-                  <div className="scan-line"></div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col">
-            {isPredicting && (
-              <div className="flex flex-col items-center justify-center py-24 gap-6">
-                <div className="w-16 h-16 animate-spin">
-                  <svg viewBox="0 0 64 64" className="w-full h-full drop-shadow-[0_0_12px_rgba(139,92,246,0.4)]">
-                    <circle cx="32" cy="32" r="28" strokeWidth="4" fill="none" stroke="rgba(255,255,255,0.08)"/>
-                    <circle cx="32" cy="32" r="28" strokeWidth="4" fill="none" stroke="url(#loaderGrad)" strokeDasharray="140 40" strokeLinecap="round" className="origin-center" />
-                    <defs>
-                      <linearGradient id="loaderGrad" x1="0" y1="0" x2="1" y2="1">
-                        <stop offset="0%" stopColor="#c4b5fd"/>
-                        <stop offset="100%" stopColor="#818cf8"/>
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                </div>
-                <p className="text-text-secondary text-sm tracking-wide">Analyzing visual patterns…</p>
-              </div>
-            )}
-
-            {result !== null && config && (
-              <div className="bg-bg-card border border-border-subtle rounded-2xl p-8 flex flex-col gap-8 backdrop-blur-xl animate-fadeUp">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-xs font-medium text-text-secondary uppercase tracking-widest">Melanoma probability</span>
-                    <div className={`font-instrument text-5xl mt-2 transition-colors ${result >= config.threshold ? 'text-danger' : 'text-safe'}`}>
-                      {(result * 100).toFixed(1)}%
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={handleDownload} className="w-10 h-10 rounded-full border border-border-subtle bg-bg-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-card-hover transition-all cursor-pointer" title="Download Report">
-                      <Download className="w-5 h-5" />
-                    </button>
-                    <button onClick={reset} className="w-10 h-10 rounded-full border border-border-subtle bg-bg-card flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-card-hover transition-all cursor-pointer" title="New Analysis">
-                      <RefreshCw className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="relative w-full h-1.5 bg-white/10 rounded-full overflow-visible">
-                    <div 
-                      className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-out" 
-                      style={{ 
-                        width: `${(result * 100).toFixed(1)}%`,
-                        background: result >= config.threshold ? 'linear-gradient(90deg, #fbbf24 0%, #f87171 100%)' : 'linear-gradient(90deg, #4ade80 0%, #22d3ee 100%)',
-                        boxShadow: result >= config.threshold ? '0 0 16px rgba(248, 113, 113, 0.3)' : '0 0 16px rgba(74, 222, 128, 0.2)'
-                      }}
-                    ></div>
-                    <div className="absolute -top-1 w-0.5 h-3.5 bg-text-secondary rounded-[1px] z-10" style={{ left: `${(config.threshold * 100).toFixed(1)}%` }}></div>
-                  </div>
-                  <div className="flex justify-between text-[11px] text-text-tertiary mt-2 font-medium">
-                    <span>0%</span>
-                    <span className="text-text-secondary">Threshold: <strong className="text-text-primary">{(config.threshold * 100).toFixed(1)}%</strong></span>
-                    <span>100%</span>
-                  </div>
-                </div>
-
-                <div className={`p-4 rounded-xl flex items-center gap-3 text-sm font-semibold leading-relaxed border ${result >= config.threshold ? 'bg-danger-bg border-danger-border text-danger' : 'bg-safe-bg border-safe-border text-safe'}`}>
-                  {result >= config.threshold ? <AlertTriangle className="w-5 h-5 shrink-0" /> : <CheckCircle2 className="w-5 h-5 shrink-0" />}
-                  {result >= config.threshold ? 'High-risk lesion detected — consult a dermatologist.' : 'Low-risk — no significant indicators found.'}
-                </div>
-
-                {result >= config.threshold && (
-                  <Link href="/doctors" className="w-full py-3 px-4 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-xl text-accent text-sm font-semibold text-center transition-colors">
-                    Find Dermatologists Near Me
-                  </Link>
+              
+              <input type="file" ref={fileInputRef} onChange={e => e.target.files && handleFile(e.target.files[0])} accept="image/*" aria-hidden="true" hidden />
+              
+              {/* Help or Error text */}
+              <div className="mt-4 text-center text-body-sm" aria-live="polite">
+                {error === 'file' && (
+                  <p className="text-brick font-medium">This doesn&apos;t look like a photo. Try a JPG or PNG.</p>
+                )}
+                {error === 'quality' && (
+                  <p className="text-brick font-medium">This photo is too blurry or too small to analyze. Retake it in better light, closer to the spot.</p>
+                )}
+                {!error && (
+                  <p className="text-ink-muted">JPG or PNG, up to 10 MB. Use good lighting and fill the frame with the spot.</p>
                 )}
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          ) : (
+            <div className="w-full max-w-[400px] flex flex-col items-center">
+              {/* Selected Photo in LensFrame */}
+              <div className="relative w-[320px] h-[320px] flex items-center justify-center mx-auto">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                  ref={imageRef} 
+                  src={imageSrc} 
+                  alt="Hidden reference for model" 
+                  width={320} height={320} 
+                  className="hidden" 
+                />
+                
+                {/* When analyzing, we overlay the indeterminate ring on top of the LensFrame border. */}
+                {isPredicting && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center scale-110 pointer-events-none">
+                     <ConfidenceRing state="indeterminate" size="lg" />
+                  </div>
+                )}
+                
+                <LensFrame src={imageSrc} size={320} className={isPredicting ? 'opacity-80' : ''} />
+              </div>
+
+              {/* Actions below photo */}
+              <div className="mt-8 flex flex-col items-center gap-4 w-full">
+                {result === null ? (
+                  <>
+                    <button 
+                      onClick={handlePredict}
+                      disabled={isPredicting}
+                      className={`
+                        w-full max-w-[240px] h-[52px] rounded-md font-semibold text-body focus-ring transition-colors
+                        ${isPredicting 
+                          ? 'bg-hairline text-ink-muted cursor-not-allowed' 
+                          : 'bg-teal text-surface hover:bg-teal-dark'}
+                      `}
+                    >
+                      {isPredicting ? 'Analyzing…' : 'Analyze Photo'}
+                    </button>
+                    {!isPredicting && (
+                      <button 
+                        onClick={reset}
+                        className="text-body-sm font-semibold text-ink-muted hover:text-ink focus-ring px-4 py-2 rounded-md transition-colors"
+                      >
+                        Replace Photo
+                      </button>
+                    )}
+                    
+                    {error === 'network' && (
+                      <p className="mt-2 text-brick text-body-sm font-medium text-center" aria-live="polite">
+                        We couldn&apos;t complete the analysis. Your photo hasn&apos;t been lost — try again.
+                      </p>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Result */}
+        <div className="flex flex-col items-center lg:items-start w-full">
+          {result !== null && pct !== null && (
+            <div className="w-full max-w-[440px] flex flex-col items-center lg:items-start animate-fadeUp">
+              
+              {/* Label Chip and Confidence Ring Group */}
+              <div className="flex flex-col items-center w-full sm:w-auto sm:min-w-[200px]">
+                {/* Label Chip */}
+                <div className="mb-6">
+                  <span className={`
+                    inline-flex items-center justify-center px-4 py-1.5 rounded-sm text-sm font-semibold uppercase tracking-wide
+                    ${isHigh ? 'bg-brick/10 text-brick' : 'bg-moss/10 text-moss'}
+                  `}>
+                    {isHigh ? 'Flagged' : 'Lower Concern'}
+                  </span>
+                </div>
+
+                {/* Confidence Ring */}
+                <div className="mb-8">
+                  <ConfidenceRing 
+                    state="settled" 
+                    value={pct} 
+                    size="lg" 
+                    predictionClass={predictionClass} 
+                  />
+                </div>
+              </div>
+
+              {/* Advisory Band */}
+              <div className="w-full mb-6">
+                <AdvisoryBand isFlagged={isHigh} />
+              </div>
+
+              {/* Explanation Text */}
+              <div className="w-full mb-8">
+                <p className="text-body text-ink">
+                  {isHigh 
+                    ? "The model detected visual patterns frequently associated with melanoma. This does not mean you have skin cancer, but it is a strong signal to have a professional examine it."
+                    : "The model did not find strong visual patterns typically associated with melanoma in this image. Continue monitoring the spot for any changes in size, shape, or color."}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="w-full flex flex-col sm:flex-row gap-3">
+                <Link
+                  href="/doctors"
+                  className="flex-1 inline-flex items-center justify-center min-h-[52px] h-auto py-2 px-4 rounded-md bg-teal text-surface font-semibold text-body hover:bg-teal-dark transition-colors focus-ring text-center"
+                >
+                  Find a Dermatologist Near Me
+                </Link>
+                <button
+                  onClick={reset}
+                  className="sm:w-auto inline-flex items-center justify-center h-[52px] px-6 rounded-md bg-surface border border-hairline text-ink font-semibold text-body hover:bg-paper transition-colors focus-ring"
+                >
+                  New Scan
+                </button>
+              </div>
+
+            </div>
+          )}
+          
+          {result === null && !isPredicting && (
+             <div className="hidden lg:flex w-full h-full items-center justify-center">
+                {/* Empty right column placeholder */}
+             </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Permanent Advisory Band at the bottom of the page? No, spec says: 
+          Advisory band (always visible, ochre-tint): "This tool supports — it does not replace — a dermatologist's diagnosis." 
+          Wait, in the layout diagram it shows it at the bottom. But then in Result State it says "Directly under the ring: the Advisory Band — non-negotiable". 
+          I will just put it globally at the bottom if there is no result, to match the diagram. 
+      */}
+      {result === null && (
+        <div className="mt-20">
+          <AdvisoryBand />
+        </div>
       )}
     </div>
   );
