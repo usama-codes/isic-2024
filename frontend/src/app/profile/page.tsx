@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from "react";
-import { useAuth } from "@/context/AuthContext";
+import { useUser, useAuth } from "@clerk/nextjs";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { User as UserIcon, Download, LogOut, ArrowRight } from "lucide-react";
@@ -8,7 +8,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function ProfilePage() {
-  const { user, loading, signOut } = useAuth();
+  const { user, isLoaded } = useUser();
+  const { signOut } = useAuth();
+  const loading = !isLoaded;
   const router = useRouter();
   const [isExporting, setIsExporting] = useState(false);
 
@@ -25,26 +27,30 @@ export default function ProfilePage() {
       const zip = new JSZip();
       const imgFolder = zip.folder("images");
 
-      const snap = await getDocs(collection(db, "users", user.uid, "analyses"));
-      
+      const snap = await getDocs(collection(db, "users", user.id, "analyses"));
+
       const rows = [
-        ["ID", "Date", "Probability", "Risk", "Threshold", "Image_Filename"]
+        ["ID", "Date", "Probability", "Risk", "Threshold", "Image_Filename"],
       ];
 
-      snap.forEach(doc => {
+      snap.forEach((doc) => {
         const data = doc.data();
         let dateStr = "";
-        
+
         if (data.timestamp) {
-          if (typeof data.timestamp === "object" && "toDate" in data.timestamp && typeof data.timestamp.toDate === "function") {
+          if (
+            typeof data.timestamp === "object" &&
+            "toDate" in data.timestamp &&
+            typeof data.timestamp.toDate === "function"
+          ) {
             dateStr = data.timestamp.toDate().toISOString();
           } else {
             dateStr = new Date(data.timestamp).toISOString();
           }
         }
-        
+
         const imageFilename = `scan_${doc.id}.jpg`;
-        
+
         // Add image to zip if available
         if (data.imageDataUrl && data.imageDataUrl.includes(",")) {
           const base64Data = data.imageDataUrl.split(",")[1];
@@ -59,11 +65,11 @@ export default function ProfilePage() {
           data.probability?.toString() || "",
           data.isHighRisk ? "High" : "Low",
           data.threshold?.toString() || "",
-          imageFilename
+          imageFilename,
         ]);
       });
 
-      const csvContent = rows.map(r => r.join(",")).join("\n");
+      const csvContent = rows.map((r) => r.join(",")).join("\n");
       zip.file("history.csv", csvContent);
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -96,14 +102,19 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center bg-surface border border-hairline rounded-md max-w-[720px] mx-auto animate-fadeUp">
-        <UserIcon className="w-12 h-12 text-ink-muted mb-4 opacity-50 stroke-[1.5]" aria-hidden="true" />
+        <UserIcon
+          className="w-12 h-12 text-ink-muted mb-4 opacity-50 stroke-[1.5]"
+          aria-hidden="true"
+        />
         <p className="text-body font-semibold text-ink mb-2">Not signed in</p>
-        <p className="text-body-sm text-ink-muted mb-6">Sign in to view your profile and manage data.</p>
+        <p className="text-body-sm text-ink-muted mb-6">
+          Sign in to view your profile and manage data.
+        </p>
         <Link
-          href="/"
+          href="/login"
           className="inline-flex items-center justify-center h-10 px-6 rounded-md bg-teal text-surface font-semibold text-sm hover:bg-teal-dark transition-colors focus-ring"
         >
-          Go to Home
+          Sign In
         </Link>
       </div>
     );
@@ -111,7 +122,6 @@ export default function ProfilePage() {
 
   return (
     <div className="animate-fadeUp max-w-[720px] mx-auto pb-20">
-      
       <div className="mb-10">
         <h1 className="mb-4">Profile & Settings</h1>
         <p className="text-body text-ink-muted">
@@ -120,20 +130,25 @@ export default function ProfilePage() {
       </div>
 
       <div className="flex flex-col gap-6">
-        
         {/* Account Info */}
         <section className="bg-surface rounded-md border border-hairline p-6">
-          <h2 className="text-body font-semibold text-ink mb-6">Account Information</h2>
+          <h2 className="text-body font-semibold text-ink mb-6">
+            Account Information
+          </h2>
           <div className="space-y-4">
             <div>
-              <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">Email</p>
-              <p className="text-body text-ink font-medium">{user.email || "No email available"}</p>
+              <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">
+                Email
+              </p>
+              <p className="text-body text-ink font-medium">{user.primaryEmailAddress?.emailAddress || "No email available"}</p>
             </div>
-            {user.metadata.creationTime && (
+            {user.createdAt && (
               <div>
-                <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">Member Since</p>
+                <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">
+                  Member Since
+                </p>
                 <p className="text-body text-ink font-medium">
-                  {new Date(user.metadata.creationTime).toLocaleDateString()}
+                  {new Date(user.createdAt).toLocaleDateString()}
                 </p>
               </div>
             )}
@@ -142,12 +157,17 @@ export default function ProfilePage() {
 
         {/* Data & Privacy */}
         <section className="bg-surface rounded-md border border-hairline p-6">
-          <h2 className="text-body font-semibold text-ink mb-6">Data & Privacy</h2>
+          <h2 className="text-body font-semibold text-ink mb-6">
+            Data & Privacy
+          </h2>
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <p className="text-body font-medium text-ink">Export Analysis History</p>
+              <p className="text-body font-medium text-ink">
+                Export Analysis History
+              </p>
               <p className="text-body-sm text-ink-muted mt-1 max-w-sm">
-                Download a ZIP file containing the results, dates, and original images of all your past scans.
+                Download a ZIP file containing the results, dates, and original
+                images of all your past scans.
               </p>
             </div>
             <button
@@ -180,7 +200,6 @@ export default function ProfilePage() {
             </button>
           </div>
         </section>
-
       </div>
     </div>
   );
