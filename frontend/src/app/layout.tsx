@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Public_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import { ClerkProvider } from '@clerk/nextjs'
+import { AuthProvider } from "@/context/AuthContext";
 import { AnalysisProvider } from "@/context/AnalysisContext";
 import AppShell from "@/components/AppShell";
 
@@ -48,7 +48,7 @@ export default function RootLayout({
           Skip to main content
         </a>
 
-        <ClerkProvider>
+        <AuthProvider>
           <AnalysisProvider>
             <AppShell>
               <main id="main-content" className="w-full">
@@ -56,7 +56,7 @@ export default function RootLayout({
               </main>
             </AppShell>
           </AnalysisProvider>
-        </ClerkProvider>
+        </AuthProvider>
       </body>
     </html>
   );

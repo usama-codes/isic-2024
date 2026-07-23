@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from "react";
-import { useUser, useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { User as UserIcon, Download, LogOut, ArrowRight } from "lucide-react";
@@ -8,9 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function ProfilePage() {
-  const { user, isLoaded } = useUser();
-  const { signOut } = useAuth();
-  const loading = !isLoaded;
+  const { user, signOut, loading } = useAuth();
   const router = useRouter();
   const [isExporting, setIsExporting] = useState(false);
 
@@ -27,7 +25,7 @@ export default function ProfilePage() {
       const zip = new JSZip();
       const imgFolder = zip.folder("images");
 
-      const snap = await getDocs(collection(db, "users", user.id, "analyses"));
+      const snap = await getDocs(collection(db, "users", user.uid, "analyses"));
 
       const rows = [
         ["ID", "Date", "Probability", "Risk", "Threshold", "Image_Filename"],
@@ -140,15 +138,15 @@ export default function ProfilePage() {
               <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">
                 Email
               </p>
-              <p className="text-body text-ink font-medium">{user.primaryEmailAddress?.emailAddress || "No email available"}</p>
+              <p className="text-body text-ink font-medium">{user.email || "No email available"}</p>
             </div>
-            {user.createdAt && (
+            {user.metadata.creationTime && (
               <div>
                 <p className="text-[13px] font-semibold text-ink-muted uppercase tracking-wide mb-1">
                   Member Since
                 </p>
                 <p className="text-body text-ink font-medium">
-                  {new Date(user.createdAt).toLocaleDateString()}
+                  {new Date(user.metadata.creationTime).toLocaleDateString()}
                 </p>
               </div>
             )}

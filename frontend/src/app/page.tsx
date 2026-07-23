@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useState, useEffect } from "react";
 import { useModel } from "@/hooks/useModel";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { useAnalysis } from "@/context/AnalysisContext";
@@ -12,7 +12,7 @@ import AdvisoryBand from "@/components/AdvisoryBand";
 
 export default function Home() {
   const { predict } = useModel();
-  const { user } = useUser();
+  const { user, loading: authLoading } = useAuth();
   const { imageSrc, setImageSrc, result, setResult, resetAnalysis } =
     useAnalysis();
 
@@ -86,7 +86,7 @@ export default function Home() {
           c.width = w;
           c.height = h;
           ctx?.drawImage(img, 0, 0, w, h);
-          await addDoc(collection(db, "users", user.id, "analyses"), {
+          await addDoc(collection(db, "users", user.uid, "analyses"), {
             imageDataUrl: c.toDataURL("image/jpeg", 0.7),
             probability: prob,
             threshold: config.threshold,

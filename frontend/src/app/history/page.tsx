@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import {
   collection,
@@ -29,8 +29,7 @@ interface AnalysisRecord {
 }
 
 export default function HistoryPage() {
-  const { user, isLoaded } = useUser();
-  const authLoading = !isLoaded;
+  const { user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<AnalysisRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"All" | "Flagged" | "Benign-leaning">(
@@ -53,7 +52,7 @@ export default function HistoryPage() {
     if (!user) return;
 
     const q = query(
-      collection(db, "users", user.id, "analyses"),
+      collection(db, "users", user.uid, "analyses"),
       orderBy("timestamp", "desc"),
       limit(50),
     );
@@ -74,7 +73,7 @@ export default function HistoryPage() {
     if (!user || !selectedRecord) return;
     setIsConfirmOpen(false);
     setSelectedRecord(null);
-    await deleteDoc(doc(db, "users", user.id, "analyses", selectedRecord.id));
+    await deleteDoc(doc(db, "users", user.uid, "analyses", selectedRecord.id));
     setRecords((r) => r.filter((x) => x.id !== selectedRecord.id));
   };
 
